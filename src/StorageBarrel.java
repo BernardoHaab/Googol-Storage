@@ -1,31 +1,40 @@
+import java.io.IOException;
 import java.net.DatagramPacket;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.MulticastSocket;
 import java.net.NetworkInterface;
-import java.rmi.registry.LocateRegistry;
-import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class StorageBarrel extends Thread {
   private String HOST_NAME = "224.3.2.1";
   private int PORT = 4321;
+  private int PORT_RETRIEVE = 4322;
 
   private MulticastSocket socket = null;
   private NetworkInterface networkInterface;
   private InetAddress mcastaddr;
 
+  private int expectedMessageId = 0;
+  private int retrievingMessageId = -1;
+
   // Palavra -> Lista de URLs
   private ConcurrentHashMap<String, HashSet<String>> storage = new ConcurrentHashMap<String, HashSet<String>>();
-  private ConcurrentHashMap<String, WordList> tempStorage = new ConcurrentHashMap<String, WordList>();
 
   // URL -> Lista de URLs que referenciam a URL
   private ConcurrentHashMap<String, HashSet<String>> urls = new ConcurrentHashMap<String, HashSet<String>>();
-  // ToDo: Receber mensagem com URL que a página atual referencia
+
+  // senderId -> conjunto de messageId
+  private HashMap<UUID, HashSet<Integer>> receivedMessages = new HashMap<UUID, HashSet<Integer>>();
+
+  // senderId -> (messageId -> Req)
+  private HashMap<UUID, HashMap<Integer, Req>> messageBuffer = new HashMap<UUID, HashMap<Integer, Req>>();
 
   public static void main(String[] args) {
     StorageBarrel gateway = new StorageBarrel();
@@ -57,7 +66,8 @@ public class StorageBarrel extends Thread {
 
         System.out.println("\n\n");
 
-        processMessage(new String(buffer, 0, packet.getLength()));
+        Req req = parseMessage(new String(buffer));
+        processReq(req);
         buffer = new byte[1024];
       }
     } catch (Exception e) {
@@ -65,49 +75,137 @@ public class StorageBarrel extends Thread {
     }
   }
 
-  private String processMessage(String message) {
+  private Req parseMessage(String message) {
+    try {
+      return new Req(message);
+    } catch (Exception e) {
+      System.out.println("Error parsing message");
+      return null;
+    }
+  }
+
+  /**
+   * Se recebe a mensagem esperada, computa ela, incrementa o expectedMessageId e
+   * ve se a próxima esta no buffer
+   * - Se esta processa ela da mesma forma (Chama recursivamente o processMessage)
+   * Se recebe mensagem com id menor que o esperado, ignora
+   * Se recebe mensagem com id maior que o esperado, coloca ela no buffer e cria
+   * timeout para enviar pedido de reenvio
+   * - Quando timeout estourar, Se o expectedMessageId for < que o id da mensagem
+   * no buffer, envia pedido de reenvio da expectedMessageId
+   */
+  private void processReq(Req req) {
     System.out.println("--->Processing message");
-    String req[] = message.split(";");
-    String[] identifier = req[0].trim().split("\\|");
+    boolean isNewMessage = true;
 
-    if (!identifier[0].trim().toUpperCase().equals("TYPE")) {
-      System.out.println("Does not have a type identifier");
-
-      String res = "TYPE | ERROR; MESSAGE | Does not have a type identifier; req | " + message;
-      return res;
+    if (receivedMessages.containsKey(req.getSenderId())) {
+      isNewMessage = !receivedMessages.get(req.getSenderId()).contains(req.getMessageId());
     }
 
-    String type = identifier[1].trim().toUpperCase();
-    String[] messageContent = new String[req.length - 1];
-    System.arraycopy(req, 1, messageContent, 0, req.length - 1);
+    if (!isNewMessage) {
+      System.out.println("-->Message already received");
+      return;
+    }
 
-    System.out.println("Type: " + type);
+    if (req.getMessageId() != expectedMessageId) {
+      System.out.println("-->Unexpected message id");
+      System.out.println("--->Expected: " + expectedMessageId);
+      System.out.println("--->Received: " + req.getMessageId());
+      processUnexpectedMessage(req);
+      return;
+    }
+    expectedMessageId++;
 
     try {
-      switch (type) {
+      switch (req.getType()) {
         case "WORD_LIST":
-          updateStorage(messageContent);
+          updateStorage(req.getContent());
 
           System.out.println("---------------------Storage updated---------------------");
-          System.out.println("Storage size: " + storage.size());
-          // printStorage();
-          return "";
+          break;
 
         case "REFERENCED_URLS":
-          addReferencedUrls(messageContent);
+          addReferencedUrls(req.getContent());
 
           System.out.println("---------------------Referenced URLs updated---------------------");
-          // printUrls();
-          System.out.println("Referenced URLs size: " + urls.size());
-          return "";
+          break;
         default:
           System.out.println("Invalid message type");
-          return "TYPE | ERROR; MESSAGE | Invalid message type; req | " + message;
+          break;
       }
+
+      if (receivedMessages.containsKey(req.getSenderId())) {
+        HashSet<Integer> received = receivedMessages.get(req.getSenderId());
+        received.add(req.getMessageId());
+      } else {
+        HashSet<Integer> received = new HashSet<Integer>();
+        received.add(req.getMessageId());
+        receivedMessages.put(req.getSenderId(), received);
+      }
+
+      if (messageBuffer.containsKey(req.getSenderId())) {
+        HashMap<Integer, Req> buffer = messageBuffer.get(req.getSenderId());
+        if (buffer.containsKey(expectedMessageId)) {
+          Req nextMessage = buffer.get(expectedMessageId);
+          buffer.remove(expectedMessageId);
+          processReq(nextMessage);
+        }
+      }
+
     } catch (Exception e) {
-      e.printStackTrace();
-      return "TYPE | ERROR; MESSAGE | Error processing message ; req | " + message;
+      System.out.println("Error parsing message");
     }
+  }
+
+  private void processUnexpectedMessage(Req req) {
+    UUID senderId = req.getSenderId();
+    int messageId = req.getMessageId();
+
+    if (req.getMessageId() <= expectedMessageId) {
+      return;
+    }
+
+    // Adiciona mensagem no buffer
+    if (messageBuffer.containsKey(senderId)) {
+      HashMap<Integer, Req> buffer = messageBuffer.get(senderId);
+      buffer.put(messageId, req);
+    } else {
+      HashMap<Integer, Req> buffer = new HashMap<Integer, Req>();
+      buffer.put(messageId, req);
+      messageBuffer.put(senderId, buffer);
+    }
+
+    if (retrievingMessageId != expectedMessageId) {
+      retrievingMessageId = expectedMessageId;
+      requestRetrieve(req, expectedMessageId);
+    }
+  }
+
+  private void requestRetrieve(Req req, int messageToRetrieve) {
+
+    new java.util.Timer().schedule(
+        new java.util.TimerTask() {
+          @Override
+          public void run() {
+            // Verifica se a mensagem esperada foi recebida durante o intervalo
+            System.out.println();
+            if (messageToRetrieve < expectedMessageId) {
+              return;
+            }
+
+            // Se não foi, pede ela
+            try {
+              String message = "TYPE | RETRIEVE; " + req.getSenderId() + " | " + messageToRetrieve;
+              sendRetrieveMessage(message);
+            } catch (Exception e) {
+              System.out.println("Error sending request");
+            } finally {
+              // Enquanto não receber a mensagem esperada, fica pedindo ela
+              requestRetrieve(req, messageToRetrieve);
+            }
+          }
+        },
+        1000);
   }
 
   private void updateStorage(String[] message) {
@@ -115,57 +213,17 @@ public class StorageBarrel extends Thread {
 
     String url = message[0].trim().split("\\|")[1];
 
-    int qntWords = Integer.parseInt(message[1].split("\\|")[1].trim());
-
     String[] items = new String[message.length - 2];
-
     System.arraycopy(message, 2, items, 0, message.length - 2);
-
-    Boolean isPartMessage = qntWords != items.length;
 
     for (String item : items) {
       String[] wordContent = item.trim().split("\\|");
-      Integer wordNumber = Integer.parseInt(wordContent[0].trim());
       String word = wordContent[1];
 
       newWords.add(word);
     }
 
-    if (isPartMessage) {
-      if (tempStorage.containsKey(url)) {
-        WordList wordList = tempStorage.get(url);
-        wordList.addWord(newWords);
-        if (wordList.getSize() == wordList.getWordList().size()) {
-          addWords(url, wordList.getWordList());
-          tempStorage.remove(url);
-        }
-      } else {
-        WordList wordList = new WordList(url, qntWords, newWords);
-        tempStorage.put(url, wordList);
-
-        new java.util.Timer().schedule(
-            new java.util.TimerTask() {
-              @Override
-              public void run() {
-                if (tempStorage.containsKey(url)) {
-                  try {
-                    IUrlQueue urlQueue = (IUrlQueue) LocateRegistry.getRegistry(6666).lookup("urlQueue");
-
-                    urlQueue.addUrlFirst(url);
-                    tempStorage.remove(url);
-                  } catch (Exception e) {
-                    System.out.println("Exception in main: " + e);
-                    e.printStackTrace();
-                  }
-                }
-              }
-            },
-            5000);
-        System.out.println("Timeout set");
-      }
-    } else {
-      addWords(url, newWords);
-    }
+    addWords(url, newWords);
   }
 
   private void addWords(String url, List<String> words) {
@@ -184,16 +242,12 @@ public class StorageBarrel extends Thread {
 
   private void addReferencedUrls(String[] message) {
     String url = message[0].trim().split("\\|")[1];
-    int qntLinks = Integer.parseInt(message[1].split("\\|")[1].trim());
 
     String[] items = new String[message.length - 2];
     System.arraycopy(message, 2, items, 0, message.length - 2);
-    Boolean isPartMessage = qntLinks != items.length;
 
     for (String item : items) {
       String[] linkContent = item.trim().split("\\|");
-      // Integer wordNumber = Integer.parseInt(linkContent[0].trim());
-      System.out.println("Link: " + Arrays.toString(linkContent));
       String link = linkContent[1];
 
       HashSet<String> referencedBy = urls.get(link);
@@ -205,10 +259,6 @@ public class StorageBarrel extends Thread {
       } else {
         referencedBy.add(url);
       }
-    }
-
-    if (isPartMessage) {
-      // ToDo: Tratar mensagem parcial
     }
   }
 
@@ -232,6 +282,19 @@ public class StorageBarrel extends Thread {
       System.out.println("URL: " + url);
       System.out.println("Referenced by: " + referencedBy.toString());
     }
+  }
+
+  // private void sendError(Req req, String error) {
+  // String res = "TYPE | ERROR; " + req.getSenderId() + " | " +
+  // req.getMessageId() + ";MESSAGE" + error;
+  // System.out.println("Sending error response: " + res);
+  // }
+
+  private void sendRetrieveMessage(String message) throws IOException {
+    System.out.println("Sending retrieve message: " + message);
+    byte[] buffer = message.getBytes();
+    DatagramPacket packet = new DatagramPacket(buffer, buffer.length, mcastaddr, PORT_RETRIEVE);
+    socket.send(packet);
   }
 
 }
