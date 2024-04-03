@@ -13,9 +13,9 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class StorageBarrel extends Thread {
-  private String HOST_NAME = "224.3.2.1";
-  private int PORT = 4321;
-  private int PORT_RETRIEVE = 4322;
+  private String HOST_NAME;
+  private int PORT;
+  private int PORT_RETRIEVE;
 
   private MulticastSocket socket = null;
   private NetworkInterface networkInterface;
@@ -36,9 +36,15 @@ public class StorageBarrel extends Thread {
   // senderId -> (messageId -> Req)
   private HashMap<UUID, HashMap<Integer, Req>> messageBuffer = new HashMap<UUID, HashMap<Integer, Req>>();
 
-  public static void main(String[] args) {
-    StorageBarrel gateway = new StorageBarrel();
-    gateway.start();
+  // public static void main(String[] args) {
+  // StorageBarrel gateway = new StorageBarrel();
+  // gateway.start();
+  // }
+
+  public StorageBarrel(String hostName, int port, int portRetrieve) {
+    this.HOST_NAME = hostName;
+    this.PORT = port;
+    this.PORT_RETRIEVE = portRetrieve;
   }
 
   @Override
@@ -59,12 +65,11 @@ public class StorageBarrel extends Thread {
         DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
         socket.receive(packet);
 
+        System.out.println("\n\n");
         System.out.println("Waiting for a message from the multicast group...");
         System.out.println("Address: " + packet.getAddress().getHostAddress());
         System.out.println("Address: " + packet.getSocketAddress());
         System.out.println("Port: " + packet.getPort());
-
-        System.out.println("\n\n");
 
         Req req = parseMessage(new String(buffer));
         processReq(req);
