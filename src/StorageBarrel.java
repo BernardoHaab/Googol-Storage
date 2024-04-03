@@ -4,10 +4,11 @@ import java.net.InetSocketAddress;
 import java.net.MulticastSocket;
 import java.net.NetworkInterface;
 import java.rmi.registry.LocateRegistry;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.PriorityQueue;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class StorageBarrel extends Thread {
@@ -19,8 +20,12 @@ public class StorageBarrel extends Thread {
   private InetAddress mcastaddr;
 
   // Palavra -> Lista de URLs
-  private ConcurrentHashMap<String, PriorityQueue<String>> storage = new ConcurrentHashMap<String, PriorityQueue<String>>();
+  private ConcurrentHashMap<String, HashSet<String>> storage = new ConcurrentHashMap<String, HashSet<String>>();
   private ConcurrentHashMap<String, WordList> tempStorage = new ConcurrentHashMap<String, WordList>();
+
+  // URL -> Lista de URLs que referenciam a URL
+  private ConcurrentHashMap<String, HashSet<String>> urls = new ConcurrentHashMap<String, HashSet<String>>();
+  // ToDo: Receber mensagem com URL que a página atual referencia
 
   public static void main(String[] args) {
     StorageBarrel gateway = new StorageBarrel();
@@ -29,6 +34,9 @@ public class StorageBarrel extends Thread {
 
   @Override
   public void run() {
+
+    System.out.println("Storage Barrel " + super.getId() + " running");
+
     try {
       socket = new MulticastSocket(PORT);
       networkInterface = NetworkInterface.getByIndex(0);
@@ -44,6 +52,7 @@ public class StorageBarrel extends Thread {
 
         System.out.println("Waiting for a message from the multicast group...");
         System.out.println("Address: " + packet.getAddress().getHostAddress());
+        System.out.println("Address: " + packet.getSocketAddress());
         System.out.println("Port: " + packet.getPort());
 
         System.out.println("\n\n");
@@ -84,6 +93,13 @@ public class StorageBarrel extends Thread {
           // printStorage();
           return "";
 
+        case "REFERENCED_URLS":
+          addReferencedUrls(messageContent);
+
+          System.out.println("---------------------Referenced URLs updated---------------------");
+          // printUrls();
+          System.out.println("Referenced URLs size: " + urls.size());
+          return "";
         default:
           System.out.println("Invalid message type");
           return "TYPE | ERROR; MESSAGE | Invalid message type; req | " + message;
@@ -95,8 +111,6 @@ public class StorageBarrel extends Thread {
   }
 
   private void updateStorage(String[] message) {
-    System.out.println("Updating storage");
-    System.out.println(List.of(message).toString());
     List<String> newWords = new LinkedList<>();
 
     String url = message[0].trim().split("\\|")[1];
@@ -133,8 +147,6 @@ public class StorageBarrel extends Thread {
             new java.util.TimerTask() {
               @Override
               public void run() {
-                System.out.println("=============> Timeout");
-                System.out.println("URL: " + url);
                 if (tempStorage.containsKey(url)) {
                   try {
                     IUrlQueue urlQueue = (IUrlQueue) LocateRegistry.getRegistry(6666).lookup("urlQueue");
@@ -159,10 +171,10 @@ public class StorageBarrel extends Thread {
   private void addWords(String url, List<String> words) {
     for (String word : words) {
       if (storage.containsKey(word)) {
-        PriorityQueue<String> urls = storage.get(word);
+        HashSet<String> urls = storage.get(word);
         urls.add(url);
       } else {
-        PriorityQueue<String> urls = new PriorityQueue<String>();
+        HashSet<String> urls = new HashSet<String>();
         urls.add(url);
         storage.put(word, urls);
 
@@ -170,14 +182,55 @@ public class StorageBarrel extends Thread {
     }
   }
 
+  private void addReferencedUrls(String[] message) {
+    String url = message[0].trim().split("\\|")[1];
+    int qntLinks = Integer.parseInt(message[1].split("\\|")[1].trim());
+
+    String[] items = new String[message.length - 2];
+    System.arraycopy(message, 2, items, 0, message.length - 2);
+    Boolean isPartMessage = qntLinks != items.length;
+
+    for (String item : items) {
+      String[] linkContent = item.trim().split("\\|");
+      // Integer wordNumber = Integer.parseInt(linkContent[0].trim());
+      System.out.println("Link: " + Arrays.toString(linkContent));
+      String link = linkContent[1];
+
+      HashSet<String> referencedBy = urls.get(link);
+
+      if (referencedBy == null) {
+        referencedBy = new HashSet<String>();
+        referencedBy.add(url);
+        urls.put(link, referencedBy);
+      } else {
+        referencedBy.add(url);
+      }
+    }
+
+    if (isPartMessage) {
+      // ToDo: Tratar mensagem parcial
+    }
+  }
+
   private void printStorage() {
     Iterator<String> it = storage.keySet().iterator();
     while (it.hasNext()) {
       String word = it.next();
-      PriorityQueue<String> urls = storage.get(word);
+      HashSet<String> urls = storage.get(word);
 
       System.out.println("Word: " + word);
       System.out.println("URLs: " + urls.toString());
+    }
+  }
+
+  private void printUrls() {
+    Iterator<String> it = urls.keySet().iterator();
+    while (it.hasNext()) {
+      String url = it.next();
+      HashSet<String> referencedBy = urls.get(url);
+
+      System.out.println("URL: " + url);
+      System.out.println("Referenced by: " + referencedBy.toString());
     }
   }
 

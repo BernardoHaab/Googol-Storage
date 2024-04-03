@@ -1,6 +1,6 @@
 import java.rmi.RemoteException;
 
-public interface IUrlQueue {
+public interface IUrlQueue extends java.rmi.Remote {
 
   public String getNextUrl() throws RemoteException;
 
