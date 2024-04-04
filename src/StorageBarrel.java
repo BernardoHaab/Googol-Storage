@@ -20,6 +20,11 @@ public class StorageBarrel extends Thread {
   private MulticastSocket socket = null;
   private NetworkInterface networkInterface;
   private InetAddress mcastaddr;
+  private UUID storageId;
+  private int syncId;
+
+  private boolean isSyncing = false;
+  private boolean isReady = false;
 
   // Palavra -> Lista de URLs
   private ConcurrentHashMap<String, HashSet<String>> storage = new ConcurrentHashMap<String, HashSet<String>>();
@@ -29,10 +34,11 @@ public class StorageBarrel extends Thread {
 
   // ToDo: Clean received messages after a while
   // senderId -> conjunto de messageId
-  private HashMap<UUID, HashSet<Integer>> receivedMessages = new HashMap<UUID, HashSet<Integer>>();
+  private HashMap<UUID, Integer> lastMessages = new HashMap<UUID, Integer>();
 
   // senderId -> conjunto de messageId
   private HashMap<UUID, Integer> retrievingMessages = new HashMap<UUID, Integer>();
+  private HashMap<UUID, Integer> attemptedRetrives = new HashMap<UUID, Integer>();
 
   // Buffer de mensagens aguardando para serem computadas
   // senderId -> (messageId -> Req)
@@ -42,6 +48,8 @@ public class StorageBarrel extends Thread {
     this.HOST_NAME = hostName;
     this.PORT = port;
     this.PORT_RETRIEVE = portRetrieve;
+    this.storageId = UUID.randomUUID();
+    this.syncId = 0;
   }
 
   @Override
@@ -56,6 +64,7 @@ public class StorageBarrel extends Thread {
 
       socket.joinGroup(new InetSocketAddress(mcastaddr, 0), networkInterface);
 
+      isReady = true;
       byte[] buffer = new byte[1024];
 
       while (true) {
@@ -71,6 +80,9 @@ public class StorageBarrel extends Thread {
         Req req = parseMessage(new String(buffer));
         processReq(req);
         buffer = new byte[1024];
+
+        System.out.println("\t\t --> Tamanho do Index: " + storage.size());
+
       }
     } catch (Exception e) {
       e.printStackTrace();
@@ -100,14 +112,14 @@ public class StorageBarrel extends Thread {
     System.out.println("--->Processing message");
     boolean isNewMessage = true;
 
-    HashSet<Integer> messagesHistoric = receivedMessages.get(req.getSenderId());
+    Integer lastMessage = lastMessages.get(req.getSenderId());
     int expectedMessageId = 0;
 
-    // System.out.println("MessageHistoric: " + messagesHistoric);
+    // System.out.println("MessageHistoric: " + lastMessage);
 
-    if (messagesHistoric != null) {
-      isNewMessage = !messagesHistoric.contains(req.getMessageId());
-      expectedMessageId = messagesHistoric.stream().max(Integer::compare).orElse(0) + 1;
+    if (lastMessage != null) {
+      isNewMessage = true;
+      expectedMessageId = lastMessage + 1;
     }
 
     if (!isNewMessage) {
@@ -115,7 +127,7 @@ public class StorageBarrel extends Thread {
       return;
     }
 
-    if (req.getMessageId() != expectedMessageId) {
+    if (req.getMessageId() != expectedMessageId && isReady) {
       System.out.println("-->Unexpected message id");
       System.out.println("--->Expected: " + expectedMessageId);
       System.out.println("--->Received: " + req.getMessageId());
@@ -124,10 +136,6 @@ public class StorageBarrel extends Thread {
       Integer retrievingMessageId = retrievingMessages.get(req.getSenderId());
 
       if (retrievingMessageId == null || retrievingMessageId != expectedMessageId) {
-        // System.out.println("--->Message " + req.getMessageId() + " requesting
-        // retrieve of " + expectedMessageId);
-
-        // retrievingMessageId = expectedMessageId;
         retrievingMessages.put(req.getSenderId(), expectedMessageId);
         requestRetrieve(req, expectedMessageId);
       }
@@ -136,35 +144,82 @@ public class StorageBarrel extends Thread {
     expectedMessageId++;
 
     try {
-      switch (req.getType()) {
-        case "WORD_LIST":
-          updateStorage(req.getContent());
 
-          System.out.println("---------------------Storage updated---------------------");
-          break;
-
-        case "REFERENCED_URLS":
-          addReferencedUrls(req.getContent());
-
-          System.out.println("---------------------Referenced URLs updated---------------------");
-          break;
-        default:
-          System.out.println("Invalid message type");
-          break;
+      if (isSyncing) {
+        switch (req.getType()) {
+          case "SYNC_MESSAGES":
+            reSyncLastMessages(req.getContent());
+            break;
+          case "SYNC_INDEX":
+            reSyncIndex(req.getContent());
+            break;
+          case "SYNC_URLS":
+            reSyncUrls(req.getContent());
+            break;
+          default:
+            System.out.println("Invalid message type - Syncing");
+            System.out.println("Type: " + req.getType());
+            break;
+        }
       }
 
-      if (messagesHistoric != null) {
-        messagesHistoric.add(req.getMessageId());
+      if (isReady) {
+        switch (req.getType()) {
+          case "WORD_LIST":
+            updateStorage(req.getContent());
+
+            System.out.println("---------------------Storage updated---------------------");
+            break;
+
+          case "REFERENCED_URLS":
+            addReferencedUrls(req.getContent());
+
+            System.out.println("---------------------Referenced URLs updated---------------------");
+            break;
+          case "REQ_SYNC":
+            System.out.println("---------------------RECEBEU PEDIDO DE RESYNC---------------------");
+            ConcurrentHashMap<String, HashSet<String>> storageCopy = new ConcurrentHashMap<String, HashSet<String>>();
+            ConcurrentHashMap<String, HashSet<String>> urlsCopy = new ConcurrentHashMap<String, HashSet<String>>();
+            HashMap<UUID, Integer> lastMessagesCopy = new HashMap<UUID, Integer>();
+
+            for (String word : storage.keySet()) {
+              HashSet<String> wordUrls = storage.get(word);
+              storageCopy.put(word, wordUrls);
+            }
+
+            for (String url : urls.keySet()) {
+              HashSet<String> page = urls.get(url);
+              urlsCopy.put(url, page);
+            }
+
+            for (UUID senderId : lastMessages.keySet()) {
+              Integer lastMessageId = lastMessages.get(senderId);
+              lastMessagesCopy.put(senderId, lastMessageId);
+            }
+
+            new Sync(HOST_NAME, PORT, storageCopy, urlsCopy, lastMessagesCopy, storageId);
+
+            break;
+          default:
+            System.out.println("Invalid message type");
+            System.out.println("Type: " + req.getType());
+            break;
+        }
+      }
+
+      if (lastMessage != null) {
+        lastMessages.put(req.getSenderId(), req.getMessageId());
       } else {
         System.out.println("===========================>Creating new message history");
-        HashSet<Integer> received = new HashSet<Integer>();
-        received.add(req.getMessageId());
-        receivedMessages.put(req.getSenderId(), received);
+        // HashSet<Integer> received = new HashSet<Integer>();
+        // received.add(req.getMessageId());
+        lastMessages.put(req.getSenderId(), req.getMessageId());
       }
 
       if (messageBuffer.containsKey(req.getSenderId())) {
         HashMap<Integer, Req> buffer = messageBuffer.get(req.getSenderId());
         if (buffer.containsKey(expectedMessageId)) {
+
           Req nextMessage = buffer.get(expectedMessageId);
           buffer.remove(expectedMessageId);
           processReq(nextMessage);
@@ -196,14 +251,41 @@ public class StorageBarrel extends Thread {
           @Override
           public void run() {
             // Verifica se a mensagem esperada foi recebida durante o intervalo
-            Integer receivedMessageId = 0;
+            Integer lastMessage = 0;
 
-            if (receivedMessages.containsKey(req.getSenderId())) {
-              receivedMessageId = receivedMessages.get(req.getSenderId()).stream().max(Integer::compare).orElse(0);
+            if (lastMessages.containsKey(req.getSenderId())) {
+              lastMessage = lastMessages.get(req.getSenderId());
             }
 
-            if (messageToRetrieve < receivedMessageId) {
+            if (messageToRetrieve < lastMessage) {
               return;
+            }
+
+            Integer attempts = attemptedRetrives.get(req.getSenderId());
+
+            if (attempts == null) {
+              attempts = 0;
+            }
+
+            System.out.println("----------------------------------------------------------------------");
+            System.out.println("Attempts: " + attempts);
+
+            if (attempts >= 3) {
+              try {
+                System.out.println("===================>Syncing with other storages");
+                String message = storageId + "|" + syncId + ";TYPE|REQ_SYNC;";
+                byte[] buffer = message.getBytes();
+                DatagramPacket packet = new DatagramPacket(buffer, buffer.length, mcastaddr, PORT);
+                socket.send(packet);
+                isSyncing = true;
+                isReady = false;
+                return;
+              } catch (Exception e) {
+                System.out.println("Error requesting sync");
+              }
+            } else {
+              attempts++;
+              attemptedRetrives.put(req.getSenderId(), attempts);
             }
 
             // Se não foi, pede ela
@@ -277,7 +359,53 @@ public class StorageBarrel extends Thread {
     }
   }
 
+  private void reSyncLastMessages(String[] messages) {
+    for (String message : messages) {
+      String[] parts = message.split("\\|");
+      UUID senderId = UUID.fromString(parts[0].trim());
+      int messageId = Integer.parseInt(parts[1].trim());
+
+      lastMessages.put(senderId, messageId);
+    }
+    isReady = true;
+  }
+
+  private void reSyncIndex(String[] messages) {
+    for (String message : messages) {
+      String[] parts = message.split("\\|");
+      String word = parts[0].trim();
+      String url = parts[1].trim();
+
+      if (storage.contains(word)) {
+        HashSet<String> urls = storage.get(word);
+        urls.add(url);
+      } else {
+        HashSet<String> urls = new HashSet<String>();
+        urls.add(url);
+        storage.put(word, urls);
+      }
+    }
+  }
+
+  private void reSyncUrls(String[] messages) {
+    for (String message : messages) {
+      String[] parts = message.split("\\|");
+      String word = parts[0].trim();
+      String url = parts[1].trim();
+
+      if (urls.contains(url)) {
+        HashSet<String> referencedBy = urls.get(url);
+        referencedBy.add(word);
+      } else {
+        HashSet<String> referencedBy = new HashSet<String>();
+        referencedBy.add(word);
+        urls.put(url, referencedBy);
+      }
+    }
+  }
+
   private void printStorage() {
+    System.out.println("-----START - Printing storage-----");
     Iterator<String> it = storage.keySet().iterator();
     while (it.hasNext()) {
       String word = it.next();
@@ -286,6 +414,7 @@ public class StorageBarrel extends Thread {
       System.out.println("Word: " + word);
       System.out.println("URLs: " + urls.toString());
     }
+    System.out.println("-----END - Printing storage-----");
   }
 
   private void printUrls() {
