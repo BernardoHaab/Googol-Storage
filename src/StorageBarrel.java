@@ -21,25 +21,22 @@ public class StorageBarrel extends Thread {
   private NetworkInterface networkInterface;
   private InetAddress mcastaddr;
 
-  private int expectedMessageId = 0;
-  private int retrievingMessageId = -1;
-
   // Palavra -> Lista de URLs
   private ConcurrentHashMap<String, HashSet<String>> storage = new ConcurrentHashMap<String, HashSet<String>>();
 
   // URL -> Lista de URLs que referenciam a URL
   private ConcurrentHashMap<String, HashSet<String>> urls = new ConcurrentHashMap<String, HashSet<String>>();
 
+  // ToDo: Clean received messages after a while
   // senderId -> conjunto de messageId
   private HashMap<UUID, HashSet<Integer>> receivedMessages = new HashMap<UUID, HashSet<Integer>>();
 
+  // senderId -> conjunto de messageId
+  private HashMap<UUID, Integer> retrievingMessages = new HashMap<UUID, Integer>();
+
+  // Buffer de mensagens aguardando para serem computadas
   // senderId -> (messageId -> Req)
   private HashMap<UUID, HashMap<Integer, Req>> messageBuffer = new HashMap<UUID, HashMap<Integer, Req>>();
-
-  // public static void main(String[] args) {
-  // StorageBarrel gateway = new StorageBarrel();
-  // gateway.start();
-  // }
 
   public StorageBarrel(String hostName, int port, int portRetrieve) {
     this.HOST_NAME = hostName;
@@ -103,8 +100,14 @@ public class StorageBarrel extends Thread {
     System.out.println("--->Processing message");
     boolean isNewMessage = true;
 
-    if (receivedMessages.containsKey(req.getSenderId())) {
-      isNewMessage = !receivedMessages.get(req.getSenderId()).contains(req.getMessageId());
+    HashSet<Integer> messagesHistoric = receivedMessages.get(req.getSenderId());
+    int expectedMessageId = 0;
+
+    // System.out.println("MessageHistoric: " + messagesHistoric);
+
+    if (messagesHistoric != null) {
+      isNewMessage = !messagesHistoric.contains(req.getMessageId());
+      expectedMessageId = messagesHistoric.stream().max(Integer::compare).orElse(0) + 1;
     }
 
     if (!isNewMessage) {
@@ -116,7 +119,18 @@ public class StorageBarrel extends Thread {
       System.out.println("-->Unexpected message id");
       System.out.println("--->Expected: " + expectedMessageId);
       System.out.println("--->Received: " + req.getMessageId());
-      processUnexpectedMessage(req);
+      addMessageToBuffer(req);
+
+      Integer retrievingMessageId = retrievingMessages.get(req.getSenderId());
+
+      if (retrievingMessageId == null || retrievingMessageId != expectedMessageId) {
+        // System.out.println("--->Message " + req.getMessageId() + " requesting
+        // retrieve of " + expectedMessageId);
+
+        // retrievingMessageId = expectedMessageId;
+        retrievingMessages.put(req.getSenderId(), expectedMessageId);
+        requestRetrieve(req, expectedMessageId);
+      }
       return;
     }
     expectedMessageId++;
@@ -139,10 +153,10 @@ public class StorageBarrel extends Thread {
           break;
       }
 
-      if (receivedMessages.containsKey(req.getSenderId())) {
-        HashSet<Integer> received = receivedMessages.get(req.getSenderId());
-        received.add(req.getMessageId());
+      if (messagesHistoric != null) {
+        messagesHistoric.add(req.getMessageId());
       } else {
+        System.out.println("===========================>Creating new message history");
         HashSet<Integer> received = new HashSet<Integer>();
         received.add(req.getMessageId());
         receivedMessages.put(req.getSenderId(), received);
@@ -162,15 +176,10 @@ public class StorageBarrel extends Thread {
     }
   }
 
-  private void processUnexpectedMessage(Req req) {
+  private void addMessageToBuffer(Req req) {
     UUID senderId = req.getSenderId();
     int messageId = req.getMessageId();
 
-    if (req.getMessageId() <= expectedMessageId) {
-      return;
-    }
-
-    // Adiciona mensagem no buffer
     if (messageBuffer.containsKey(senderId)) {
       HashMap<Integer, Req> buffer = messageBuffer.get(senderId);
       buffer.put(messageId, req);
@@ -179,28 +188,29 @@ public class StorageBarrel extends Thread {
       buffer.put(messageId, req);
       messageBuffer.put(senderId, buffer);
     }
-
-    if (retrievingMessageId != expectedMessageId) {
-      retrievingMessageId = expectedMessageId;
-      requestRetrieve(req, expectedMessageId);
-    }
   }
 
   private void requestRetrieve(Req req, int messageToRetrieve) {
-
     new java.util.Timer().schedule(
         new java.util.TimerTask() {
           @Override
           public void run() {
             // Verifica se a mensagem esperada foi recebida durante o intervalo
-            System.out.println();
-            if (messageToRetrieve < expectedMessageId) {
+            Integer receivedMessageId = 0;
+
+            if (receivedMessages.containsKey(req.getSenderId())) {
+              receivedMessageId = receivedMessages.get(req.getSenderId()).stream().max(Integer::compare).orElse(0);
+            }
+
+            if (messageToRetrieve < receivedMessageId) {
               return;
             }
 
             // Se não foi, pede ela
             try {
-              String message = "TYPE | RETRIEVE; " + req.getSenderId() + " | " + messageToRetrieve;
+              System.out.println("Retrieving message: " + messageToRetrieve);
+              String message = "TYPE|RETRIEVE; " + req.getSenderId() + "|" +
+                  messageToRetrieve;
               sendRetrieveMessage(message);
             } catch (Exception e) {
               System.out.println("Error sending request");
@@ -210,7 +220,7 @@ public class StorageBarrel extends Thread {
             }
           }
         },
-        1000);
+        200);
   }
 
   private void updateStorage(String[] message) {
@@ -288,12 +298,6 @@ public class StorageBarrel extends Thread {
       System.out.println("Referenced by: " + referencedBy.toString());
     }
   }
-
-  // private void sendError(Req req, String error) {
-  // String res = "TYPE | ERROR; " + req.getSenderId() + " | " +
-  // req.getMessageId() + ";MESSAGE" + error;
-  // System.out.println("Sending error response: " + res);
-  // }
 
   private void sendRetrieveMessage(String message) throws IOException {
     System.out.println("Sending retrieve message: " + message);
