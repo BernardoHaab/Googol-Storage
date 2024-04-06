@@ -8,7 +8,9 @@ import org.hibernate.Session;
 
 @Entity
 @Table(name = "Page", uniqueConstraints = { @UniqueConstraint(columnNames = { "PAGE_ID" }) })
-@NamedQuery( name = "Page.byUrl", query = "SELECT p FROM Page p WHERE p.url=:url" )public class
+@NamedQuery( name = "Page.byUrl", query = "SELECT p FROM Page p WHERE p.url=:url" )
+@NamedQuery( name = "Pages.hasReferenceFor", query = "SELECT p FROM Page p join p.referencePages p1 where p1.url = :referencedPage" )
+public class
 Page {
 
   @Id
@@ -16,13 +18,13 @@ Page {
   @Column(name = "PAGE_ID", nullable = false, unique = true, length = 11)
   private int id;
 
-  @Column(name = "URL", length = 255, nullable = false, unique = true)
+  @Column(name = "URL", nullable = false, unique = true)
   private String url;
 
-  @Column(name = "TITLE", length = 255, nullable = false)
+  @Column(name = "TITLE", nullable = false)
   private String title;
 
-  @Column(name = "QUOTE", length = 255, nullable = false)
+  @Column(name = "QUOTE", nullable = false)
   private String quote;
 
   @ManyToMany
@@ -44,8 +46,8 @@ Page {
 
   public Page(String url) {
     this.url = url;
-    this.referencedBy = new HashSet<Page>();
-    this.referencePages = new HashSet<Page>();
+    this.referencedBy = new HashSet<>();
+    this.referencePages = new HashSet<>();
   }
 
   public Page() {

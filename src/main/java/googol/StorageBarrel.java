@@ -2,10 +2,6 @@ package googol;
 
 import jakarta.persistence.*;
 import org.hibernate.Session;
-import org.hibernate.SessionFactory;
-import org.hibernate.engine.spi.SessionImplementor;
-import org.hibernate.exception.ConstraintViolationException;
-import org.hibernate.query.SelectionQuery;
 
 import java.io.IOException;
 import java.net.*;
@@ -478,7 +474,13 @@ public class StorageBarrel extends Thread {
         return pages;
     }
 
+    public List<Page> listReferencedBy(String pageUrl) {
+        TypedQuery<Page> q = em.createNamedQuery("Pages.hasReferenceFor", Page.class);
 
+        q.setParameter("referencedPage", pageUrl);
+
+        return q.getResultList();
+    }
 
 }
 

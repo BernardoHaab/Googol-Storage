@@ -37,7 +37,7 @@ public class WordIndex {
     }
 
     public WordIndex() {
-        this.page = new HashSet<Page>();
+        this.page = new HashSet<>();
     }
 
     public void addPage(Page page) {

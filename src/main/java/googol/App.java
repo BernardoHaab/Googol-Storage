@@ -42,6 +42,10 @@ public class App {
 
       System.out.println(pages);
 
+      List<Page> referencedBy = barrel.listReferencedBy("https://en.wikipedia.org/wiki/European_Economic_Area");
+
+      System.out.println(referencedBy);
+
       // downloader.start();
     } catch (Exception e) {
       System.out.println("Error on main: " + e.getMessage());
