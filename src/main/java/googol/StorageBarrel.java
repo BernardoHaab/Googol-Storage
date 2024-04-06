@@ -5,6 +5,7 @@ import org.hibernate.Session;
 import org.hibernate.SessionFactory;
 import org.hibernate.engine.spi.SessionImplementor;
 import org.hibernate.exception.ConstraintViolationException;
+import org.hibernate.query.SelectionQuery;
 
 import java.io.IOException;
 import java.net.*;
@@ -25,7 +26,6 @@ public class StorageBarrel extends Thread {
     private UUID storageId;
     private int syncId;
 
-    private boolean isSyncing = false;
     private boolean isReady = false;
 
     // Palavra -> Lista de URLs
@@ -283,7 +283,6 @@ public class StorageBarrel extends Thread {
                                 byte[] buffer = message.getBytes();
                                 DatagramPacket packet = new DatagramPacket(buffer, buffer.length, mcastaddr, PORT);
                                 socket.send(packet);
-                                isSyncing = true;
                                 isReady = false;
                                 return;
                             } catch (Exception e) {
@@ -370,7 +369,6 @@ public class StorageBarrel extends Thread {
         } finally {
             session.getTransaction().commit();
         }
-
     }
 
     private void addReferencedUrls(String[] message) {
@@ -415,51 +413,6 @@ public class StorageBarrel extends Thread {
         }
     }
 
-    private void reSyncLastMessages(String[] messages) {
-        for (String message : messages) {
-            String[] parts = message.split("\\|");
-            UUID senderId = UUID.fromString(parts[0].trim());
-            int messageId = Integer.parseInt(parts[1].trim());
-
-            lastMessages.put(senderId, messageId);
-        }
-        isReady = true;
-    }
-
-    private void reSyncIndex(String[] messages) {
-        for (String message : messages) {
-            String[] parts = message.split("\\|");
-            String word = parts[0].trim();
-            String url = parts[1].trim();
-
-            if (storage.contains(word)) {
-                HashSet<String> urls = storage.get(word);
-                urls.add(url);
-            } else {
-                HashSet<String> urls = new HashSet<String>();
-                urls.add(url);
-                storage.put(word, urls);
-            }
-        }
-    }
-
-    private void reSyncUrls(String[] messages) {
-        for (String message : messages) {
-            String[] parts = message.split("\\|");
-            String word = parts[0].trim();
-            String url = parts[1].trim();
-
-            if (urls.contains(url)) {
-                HashSet<String> referencedBy = urls.get(url);
-                referencedBy.add(word);
-            } else {
-                HashSet<String> referencedBy = new HashSet<String>();
-                referencedBy.add(word);
-                urls.put(url, referencedBy);
-            }
-        }
-    }
-
     private void printStorage() {
         System.out.println("-----START - Printing storage-----");
         Iterator<String> it = storage.keySet().iterator();
@@ -490,6 +443,42 @@ public class StorageBarrel extends Thread {
         DatagramPacket packet = new DatagramPacket(buffer, buffer.length, mcastaddr, PORT_RETRIEVE);
         socket.send(packet);
     }
+
+    public List<PageDTO> searchByTerms(Set<String> terms, int page) {
+        List<PageDTO> pages = new LinkedList<>();
+
+        Query q = em.createNativeQuery("Select p.PAGE_ID , p.URL, p.TITLE, p.QUOTE, (select count(pp.referencedBy_PAGE_ID) from page_page pp \n" +
+                "join page p1 on p1.PAGE_ID = pp.referencePages_PAGE_ID\n" +
+                "where p.URL = p1.URL) as recerencedBy  \n" +
+                "FROM word_page wp\n" +
+                "inner join page p on p.PAGE_ID = wp.PAGE_ID\n" +
+                "inner join wordindex w on w.INDEX_ID = wp.INDEX_ID\n" +
+                "WHERE w.WORD IN :terms\n" +
+                "GROUP BY wp.PAGE_ID \n" +
+                "HAVING COUNT(*) = :qnt_terms\n" +
+                "order by recerencedBy desc\n" +
+                "limit 10\n" +
+                "offset :offset");
+
+        q.setParameter("terms", terms);
+        q.setParameter("qnt_terms", terms.size());
+        q.setParameter("offset", page*10);
+
+        List<Object[]>  resultList = q.getResultList();
+
+        for (Object[] row : resultList) {
+            PageDTO p = new PageDTO();
+            p.setId((int) row[0]);
+            p.setUrl((String) row[1]);
+            p.setTitle((String) row[2]);
+            p.setQuote((String) row[3]);
+            pages.add(p);
+        }
+
+        return pages;
+    }
+
+
 
 }
 

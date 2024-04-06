@@ -3,7 +3,9 @@ package googol;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Scanner;
+import java.util.Set;
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
@@ -32,7 +34,13 @@ public class App {
       readFileProperties(fileName);
 
       StorageBarrel barrel = new StorageBarrel(barrelHost, barrelPortSend, barrelPortRetrieve, em);
-      barrel.start();
+//      barrel.start();
+      Set<String> terms = new HashSet<>();
+      terms.add("your");
+      terms.add("data");
+      List<PageDTO> pages = barrel.searchByTerms(terms, 0);
+
+      System.out.println(pages);
 
       // downloader.start();
     } catch (Exception e) {

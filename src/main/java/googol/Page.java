@@ -8,23 +8,28 @@ import org.hibernate.Session;
 
 @Entity
 @Table(name = "Page", uniqueConstraints = { @UniqueConstraint(columnNames = { "PAGE_ID" }) })
-@NamedQuery( name = "Page.byUrl", query = "SELECT p FROM Page p WHERE p.url=:url" )
-public class
+@NamedQuery( name = "Page.byUrl", query = "SELECT p FROM Page p WHERE p.url=:url" )public class
 Page {
 
   @Id
   @GeneratedValue(strategy = GenerationType.IDENTITY)
   @Column(name = "PAGE_ID", nullable = false, unique = true, length = 11)
-  public int id;
+  private int id;
 
   @Column(name = "URL", length = 255, nullable = false, unique = true)
-  public String url;
+  private String url;
+
+  @Column(name = "TITLE", length = 255, nullable = false)
+  private String title;
+
+  @Column(name = "QUOTE", length = 255, nullable = false)
+  private String quote;
 
   @ManyToMany
-  public Set<Page> referencedBy;
+  private Set<Page> referencedBy;
 
   @ManyToMany( mappedBy = "referencedBy")
-  public Set<Page> referencePages;
+  private Set<Page> referencePages;
 
   public Page(String url, Set<Page> referencedBy, Set<Page> referencePages) {
     this.url = url;
@@ -45,6 +50,30 @@ Page {
 
   public Page() {
 
+  }
+
+  public int getId() {
+    return id;
+  }
+
+  public String getUrl() {
+    return url;
+  }
+
+  public String getTitle() {
+    return title;
+  }
+
+  public String getQuote() {
+    return quote;
+  }
+
+  public Set<Page> getReferencedBy() {
+    return referencedBy;
+  }
+
+  public Set<Page> getReferencePages() {
+    return referencePages;
   }
 
   public void addReference(Page page) {
