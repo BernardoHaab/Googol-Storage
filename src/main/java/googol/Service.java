@@ -17,6 +17,14 @@ public class Service extends UnicastRemoteObject implements IStorageService, Run
         this.em = entityManagerFactory.createEntityManager();
     }
 
+    /**
+     * Busca páginas que contém o conjunto de termos, na página especificada
+     *
+     * @param terms Conjunto de termos a serem buscados
+     * @param page Página da busca
+     * @return Lista de páginas que contém os termos buscado
+     * @throws RemoteException
+     */
     public List<PageDTO> searchByTerms(Set<String> terms, int page) throws RemoteException {
         List<PageDTO> pages = new LinkedList<>();
 
@@ -62,6 +70,13 @@ public class Service extends UnicastRemoteObject implements IStorageService, Run
         return pages;
     }
 
+    /**
+     * Busca lista de páginas que referênciam a página especificada
+     *
+     * @param pageUrl
+     * @return Lista de páginas
+     * @throws RemoteException
+     */
     public List<PageDTO> listReferencedBy(String pageUrl) throws RemoteException {
         TypedQuery<Page> q = em.createNamedQuery("Pages.hasReferenceFor", Page.class);
 
@@ -81,6 +96,11 @@ public class Service extends UnicastRemoteObject implements IStorageService, Run
         return pages.stream().map(PageDTO::new).toList();
     }
 
+    /**
+     * Busca 10 pesquisa mais realizadas
+     *
+     * @return Lista com as pesquisas mais realizadas, e a quantidade de vezes que foi realizada
+     */
     public List<AbstractMap.SimpleEntry<String, Integer>> getTopSearch() {
         List<AbstractMap.SimpleEntry<String, Integer>> topSearches = new ArrayList<>();
 
