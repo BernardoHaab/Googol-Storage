@@ -1,5 +1,6 @@
 package googol;
 
+import java.io.Serializable;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -10,8 +11,8 @@ import org.hibernate.Session;
 @Table(name = "Page", uniqueConstraints = { @UniqueConstraint(columnNames = { "PAGE_ID" }) })
 @NamedQuery( name = "Page.byUrl", query = "SELECT p FROM Page p WHERE p.url=:url" )
 @NamedQuery( name = "Pages.hasReferenceFor", query = "SELECT p FROM Page p join p.referencePages p1 where p1.url = :referencedPage" )
-public class
-Page {
+public class Page implements IPage {
+  private static final long serialVersionUID = 1L;
 
   @Id
   @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -21,10 +22,10 @@ Page {
   @Column(name = "URL", nullable = false, unique = true)
   private String url;
 
-  @Column(name = "TITLE", nullable = false)
+  @Column(name = "TITLE")
   private String title;
 
-  @Column(name = "QUOTE", nullable = false)
+  @Column(name = "QUOTE")
   private String quote;
 
   @ManyToMany
@@ -96,27 +97,27 @@ Page {
             ", referencePages=" + referencePages.size() +
             '}';
   }
-
-  public static Page getPageByUrl(String url, Session session) {
-    Page page = null;
-    try {
-      TypedQuery<Page> q = session.createNamedQuery("Page.byUrl", Page.class);
-      q.setParameter("url", url);
-      page = q.getSingleResult();
-    } catch (NoResultException e) {
-      session.beginTransaction();
-      page = new Page(url);
-      session.persist(page);
-      session.getTransaction().commit();
-    } catch (Exception e) {
-      System.out.println("Error persisting page");
-      e.printStackTrace();
-      session.beginTransaction();
-      page = new Page(url);
-      session.persist(page);
-      session.getTransaction().commit();
-    }
-    return page;
-  }
+//
+//  public static Page getPageByUrl(String url, Session session) {
+//    Page page = null;
+//    try {
+//      TypedQuery<Page> q = session.createNamedQuery("Page.byUrl", Page.class);
+//      q.setParameter("url", url);
+//      page = q.getSingleResult();
+//    } catch (NoResultException e) {
+//      session.beginTransaction();
+//      page = new Page(url);
+//      session.persist(page);
+//      session.getTransaction().commit();
+//    } catch (Exception e) {
+//      System.out.println("Error persisting page");
+//      e.printStackTrace();
+//      session.beginTransaction();
+//      page = new Page(url);
+//      session.persist(page);
+//      session.getTransaction().commit();
+//    }
+//    return page;
+//  }
   
 }

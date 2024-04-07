@@ -19,19 +19,8 @@ public class StorageBarrel extends Thread {
     private MulticastSocket socket = null;
     private NetworkInterface networkInterface;
     private InetAddress mcastaddr;
-    private UUID storageId;
-    private int syncId;
 
     private boolean isReady = false;
-
-    // Palavra -> Lista de URLs
-    private ConcurrentHashMap<String, HashSet<String>> storage = new ConcurrentHashMap<String, HashSet<String>>();
-
-    // URL -> Lista de URLs que referenciam a URL
-    private ConcurrentHashMap<String, HashSet<String>> urls = new ConcurrentHashMap<String, HashSet<String>>();
-
-    // senderId -> conjunto de messageId
-    private HashMap<UUID, Integer> lastMessages = new HashMap<UUID, Integer>();
 
     // senderId -> conjunto de messageId
     private HashMap<UUID, Integer> retrievingMessages = new HashMap<UUID, Integer>();
@@ -45,11 +34,8 @@ public class StorageBarrel extends Thread {
         this.HOST_NAME = hostName;
         this.PORT = port;
         this.PORT_RETRIEVE = portRetrieve;
-        this.storageId = UUID.randomUUID();
-        this.syncId = 0;
 
         this.em = em;
-
     }
 
     @Override
@@ -80,7 +66,7 @@ public class StorageBarrel extends Thread {
                 processReq(req);
                 buffer = new byte[1024];
 
-                System.out.println("\t\t --> Tamanho do Index: " + storage.size());
+//                System.out.println("\t\t --> Tamanho do Index: " + storage.size());
 
             }
         } catch (Exception e) {
@@ -150,30 +136,6 @@ public class StorageBarrel extends Thread {
 
                         System.out.println("---------------------Referenced URLs updated---------------------");
                         break;
-                    case "REQ_SYNC":
-                        System.out.println("---------------------RECEBEU PEDIDO DE RESYNC---------------------");
-                        ConcurrentHashMap<String, HashSet<String>> storageCopy = new ConcurrentHashMap<String, HashSet<String>>();
-                        ConcurrentHashMap<String, HashSet<String>> urlsCopy = new ConcurrentHashMap<String, HashSet<String>>();
-                        HashMap<UUID, Integer> lastMessagesCopy = new HashMap<UUID, Integer>();
-
-                        for (String word : storage.keySet()) {
-                            HashSet<String> wordUrls = storage.get(word);
-                            storageCopy.put(word, wordUrls);
-                        }
-
-                        for (String url : urls.keySet()) {
-                            HashSet<String> page = urls.get(url);
-                            urlsCopy.put(url, page);
-                        }
-
-                        for (UUID senderId : lastMessages.keySet()) {
-                            Integer lastMessageId = lastMessages.get(senderId);
-                            lastMessagesCopy.put(senderId, lastMessageId);
-                        }
-
-//                        new Sync(HOST_NAME, PORT, storageCopy, urlsCopy, lastMessagesCopy, storageId);
-
-                        break;
                     default:
                         System.out.println("Invalid message type");
                         System.out.println("Type: " + req.getType());
@@ -182,21 +144,7 @@ public class StorageBarrel extends Thread {
             }
 
 
-            Session session = em.unwrap(Session.class);
-
-            try {
-                session.beginTransaction();
-                session.saveOrUpdate(lastMessage);
-                lastMessage.setLastMessageId(req.getMessageId());
-            } catch (PersistenceException e) {
-                System.out.println("SENDER JÁ EXISTE");
-            } catch (Exception e) {
-                System.out.println("Error persisting last message");
-                e.printStackTrace();
-            } finally {
-                session.getTransaction().commit();
-            }
-
+            saveLastMessage(lastMessage, req.getMessageId());
 
             if (messageBuffer.containsKey(req.getSenderId())) {
                 HashMap<Integer, Req> buffer = messageBuffer.get(req.getSenderId());
@@ -218,7 +166,6 @@ public class StorageBarrel extends Thread {
         Session session = em.unwrap(Session.class);
         LastMessage lastMessage;
         try {
-//            session.beginTransaction();
             TypedQuery<LastMessage> q = session.createNamedQuery("LastMessage.bySenderId", LastMessage.class);
             q.setParameter("senderId", senderId);
             lastMessage = q.getSingleResult();
@@ -247,19 +194,32 @@ public class StorageBarrel extends Thread {
         }
     }
 
+    private void saveLastMessage(LastMessage lastMessage, int messageId) {
+        Session session = em.unwrap(Session.class);
+
+        try {
+            session.beginTransaction();
+            session.saveOrUpdate(lastMessage);
+            lastMessage.setLastMessageId(messageId);
+        } catch (PersistenceException e) {
+            System.out.println("SENDER JÁ EXISTE");
+        } catch (Exception e) {
+            System.out.println("Error persisting last message");
+            e.printStackTrace();
+        } finally {
+            session.getTransaction().commit();
+        }
+    }
+
     private void requestRetrieve(Req req, int messageToRetrieve) {
         new Timer().schedule(
                 new TimerTask() {
                     @Override
                     public void run() {
                         // Verifica se a mensagem esperada foi recebida durante o intervalo
-                        Integer lastMessage = 0;
+                        LastMessage lastMessage = getLastMessage(req.getSenderId());
 
-                        if (lastMessages.containsKey(req.getSenderId())) {
-                            lastMessage = lastMessages.get(req.getSenderId());
-                        }
-
-                        if (messageToRetrieve < lastMessage) {
+                        if (messageToRetrieve <= lastMessage.getLastMessageId()) {
                             return;
                         }
 
@@ -269,21 +229,9 @@ public class StorageBarrel extends Thread {
                             attempts = 0;
                         }
 
-                        System.out.println("----------------------------------------------------------------------");
-                        System.out.println("Attempts: " + attempts);
-
                         if (attempts >= 3) {
-                            try {
-                                System.out.println("===================>Syncing with other storages");
-                                String message = storageId + "|" + syncId + ";TYPE|REQ_SYNC;";
-                                byte[] buffer = message.getBytes();
-                                DatagramPacket packet = new DatagramPacket(buffer, buffer.length, mcastaddr, PORT);
-                                socket.send(packet);
-                                isReady = false;
-                                return;
-                            } catch (Exception e) {
-                                System.out.println("Error requesting sync");
-                            }
+                            System.out.println("LOST MESSAGE: " + messageToRetrieve);
+                            saveLastMessage(lastMessage, messageToRetrieve);
                         } else {
                             attempts++;
                             attemptedRetrives.put(req.getSenderId(), attempts);
@@ -330,7 +278,7 @@ public class StorageBarrel extends Thread {
     private void addWords(String url, List<String> words) {
         //Get Session
         Session session = em.unwrap(Session.class);
-        Page currentPage = Page.getPageByUrl(url, session);
+        Page currentPage = PageService.getPageByUrl(url, session);
 
         try {
             session.beginTransaction();
@@ -375,24 +323,24 @@ public class StorageBarrel extends Thread {
 
         Session session = em.unwrap(Session.class);
         try {
-            Page page = Page.getPageByUrl(url, session);
+            Page page = PageService.getPageByUrl(url, session);
             session.persist(page);
 
             for (String item : items) {
                 String[] linkContent = item.trim().split("\\|");
                 String link = linkContent[1];
 
-                page.addReference(Page.getPageByUrl(link, session));
+                page.addReference(PageService.getPageByUrl(link, session));
 
-                HashSet<String> referencedBy = urls.get(link);
-
-                if (referencedBy == null) {
-                    referencedBy = new HashSet<String>();
-                    referencedBy.add(url);
-                    urls.put(link, referencedBy);
-                } else {
-                    referencedBy.add(url);
-                }
+//                HashSet<String> referencedBy = urls.get(link);
+//
+//                if (referencedBy == null) {
+//                    referencedBy = new HashSet<String>();
+//                    referencedBy.add(url);
+//                    urls.put(link, referencedBy);
+//                } else {
+//                    referencedBy.add(url);
+//                }
             }
 
             session.beginTransaction();
@@ -409,77 +357,35 @@ public class StorageBarrel extends Thread {
         }
     }
 
-    private void printStorage() {
-        System.out.println("-----START - Printing storage-----");
-        Iterator<String> it = storage.keySet().iterator();
-        while (it.hasNext()) {
-            String word = it.next();
-            HashSet<String> urls = storage.get(word);
+//    private void printStorage() {
+//        System.out.println("-----START - Printing storage-----");
+//        Iterator<String> it = storage.keySet().iterator();
+//        while (it.hasNext()) {
+//            String word = it.next();
+//            HashSet<String> urls = storage.get(word);
+//
+//            System.out.println("Word: " + word);
+//            System.out.println("URLs: " + urls.toString());
+//        }
+//        System.out.println("-----END - Printing storage-----");
+//    }
 
-            System.out.println("Word: " + word);
-            System.out.println("URLs: " + urls.toString());
-        }
-        System.out.println("-----END - Printing storage-----");
-    }
-
-    private void printUrls() {
-        Iterator<String> it = urls.keySet().iterator();
-        while (it.hasNext()) {
-            String url = it.next();
-            HashSet<String> referencedBy = urls.get(url);
-
-            System.out.println("URL: " + url);
-            System.out.println("Referenced by: " + referencedBy.toString());
-        }
-    }
+//    private void printUrls() {
+//        Iterator<String> it = urls.keySet().iterator();
+//        while (it.hasNext()) {
+//            String url = it.next();
+//            HashSet<String> referencedBy = urls.get(url);
+//
+//            System.out.println("URL: " + url);
+//            System.out.println("Referenced by: " + referencedBy.toString());
+//        }
+//    }
 
     private void sendRetrieveMessage(String message) throws IOException {
         System.out.println("Sending retrieve message: " + message);
         byte[] buffer = message.getBytes();
         DatagramPacket packet = new DatagramPacket(buffer, buffer.length, mcastaddr, PORT_RETRIEVE);
         socket.send(packet);
-    }
-
-    public List<PageDTO> searchByTerms(Set<String> terms, int page) {
-        List<PageDTO> pages = new LinkedList<>();
-
-        Query q = em.createNativeQuery("Select p.PAGE_ID , p.URL, p.TITLE, p.QUOTE, (select count(pp.referencedBy_PAGE_ID) from page_page pp \n" +
-                "join page p1 on p1.PAGE_ID = pp.referencePages_PAGE_ID\n" +
-                "where p.URL = p1.URL) as recerencedBy  \n" +
-                "FROM word_page wp\n" +
-                "inner join page p on p.PAGE_ID = wp.PAGE_ID\n" +
-                "inner join wordindex w on w.INDEX_ID = wp.INDEX_ID\n" +
-                "WHERE w.WORD IN :terms\n" +
-                "GROUP BY wp.PAGE_ID \n" +
-                "HAVING COUNT(*) = :qnt_terms\n" +
-                "order by recerencedBy desc\n" +
-                "limit 10\n" +
-                "offset :offset");
-
-        q.setParameter("terms", terms);
-        q.setParameter("qnt_terms", terms.size());
-        q.setParameter("offset", page*10);
-
-        List<Object[]>  resultList = q.getResultList();
-
-        for (Object[] row : resultList) {
-            PageDTO p = new PageDTO();
-            p.setId((int) row[0]);
-            p.setUrl((String) row[1]);
-            p.setTitle((String) row[2]);
-            p.setQuote((String) row[3]);
-            pages.add(p);
-        }
-
-        return pages;
-    }
-
-    public List<Page> listReferencedBy(String pageUrl) {
-        TypedQuery<Page> q = em.createNamedQuery("Pages.hasReferenceFor", Page.class);
-
-        q.setParameter("referencedPage", pageUrl);
-
-        return q.getResultList();
     }
 
 }

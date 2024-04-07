@@ -1,4 +1,4 @@
 downloader;127.0.0.1;6666;urlQueue
 multicast;224.3.2.1;4321;4322
-storageService;127.0.0.1;1105;storageService
+storageService;127.0.0.1;1106;storageService
 gateway;127.0.0.1;1109;googolGateway

@@ -2,10 +2,9 @@ package googol;
 
 import java.io.File;
 import java.io.FileNotFoundException;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Scanner;
-import java.util.Set;
+import java.rmi.registry.LocateRegistry;
+import java.rmi.registry.Registry;
+import java.util.*;
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
@@ -17,6 +16,9 @@ public class App {
   private static String barrelHost;
   private static int barrelPortSend;
   private static int barrelPortRetrieve;
+
+  private static int servicePort;
+  private static String serviceName;
 
   public static void main(String[] args) {
 
@@ -33,20 +35,28 @@ public class App {
 
       readFileProperties(fileName);
 
+      Service service = new Service();
+      Registry registry = LocateRegistry.createRegistry(servicePort);
+      registry.rebind(serviceName, service);
+
       StorageBarrel barrel = new StorageBarrel(barrelHost, barrelPortSend, barrelPortRetrieve, em);
-//      barrel.start();
+      barrel.start();
+
       Set<String> terms = new HashSet<>();
       terms.add("your");
       terms.add("data");
-      List<PageDTO> pages = barrel.searchByTerms(terms, 0);
+//      List<PageDTO> pages = service.searchByTerms(terms, 1);
 
-      System.out.println(pages);
+//      System.out.println(pages);
+//
+//      List<PageDTO> referencedBy = service.listReferencedBy("https://en.wikipedia.org/wiki/European_Economic_Area");
+//
+//      System.out.println(referencedBy);
+//
+//      List<AbstractMap.SimpleEntry<String, Integer>> topSearches = service.getTopSearch();
+//
+//      System.out.println(topSearches);
 
-      List<Page> referencedBy = barrel.listReferencedBy("https://en.wikipedia.org/wiki/European_Economic_Area");
-
-      System.out.println(referencedBy);
-
-      // downloader.start();
     } catch (Exception e) {
       System.out.println("Error on main: " + e.getMessage());
       e.printStackTrace();
@@ -72,6 +82,10 @@ public class App {
             barrelHost = parts[1];
             barrelPortSend = Integer.parseInt(parts[2]);
             barrelPortRetrieve = Integer.parseInt(parts[3]);
+            break;
+          case "storageService":
+            servicePort = Integer.parseInt(parts[2]);
+            serviceName = parts[3];
             break;
 
           default:

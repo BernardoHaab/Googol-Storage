@@ -1,6 +1,13 @@
 package googol;
 
-public class PageDTO {
+import java.io.Serial;
+import java.io.Serializable;
+import java.util.HashSet;
+import java.util.Set;
+
+public class PageDTO implements Serializable {
+    @Serial
+    private static final long serialVersionUID = 1L;
 
     private int id;
     private String url;
@@ -12,6 +19,13 @@ public class PageDTO {
         this.url = url;
         this.title = title;
         this.quote = quote;
+    }
+
+    public PageDTO(Page page) {
+        this.id = page.getId();
+        this.url = page.getUrl();
+        this.title = page.getTitle();
+        this.quote = page.getQuote();
     }
 
     public PageDTO() {
