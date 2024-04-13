@@ -5,7 +5,7 @@ import jakarta.persistence.*;
 import java.util.Set;
 
 @Entity
-@Table(name = "SerachInfo", uniqueConstraints = { @UniqueConstraint(columnNames = { "SEARCH_ID" }) })
+@Table(name = "serachinfo", uniqueConstraints = { @UniqueConstraint(columnNames = { "SEARCH_ID" }) })
 @NamedQuery( name = "Search.getTop10", query = "select s.query, count(s.query) qntSearch  from SearchInfo s  group by s.query order by qntSearch desc  limit 10")
 public class SearchInfo {
 

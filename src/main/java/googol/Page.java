@@ -8,7 +8,7 @@ import jakarta.persistence.*;
 import org.hibernate.Session;
 
 @Entity
-@Table(name = "Page", uniqueConstraints = { @UniqueConstraint(columnNames = { "PAGE_ID" }) })
+@Table(name = "page", uniqueConstraints = { @UniqueConstraint(columnNames = { "PAGE_ID" }) })
 @NamedQuery( name = "Page.byUrl", query = "SELECT p FROM Page p WHERE p.url=:url" )
 @NamedQuery( name = "Pages.hasReferenceFor", query = "SELECT p FROM Page p join p.referencePages p1 where p1.url = :referencedPage" )
 public class Page implements IPage {

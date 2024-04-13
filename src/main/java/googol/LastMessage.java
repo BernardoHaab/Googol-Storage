@@ -6,7 +6,7 @@ import org.hibernate.annotations.Type;
 import java.util.UUID;
 
 @Entity
-@Table( name = "LastMessage" )
+@Table( name = "lastmessage" )
 @NamedQuery( name = "LastMessage.bySenderId", query = "SELECT l FROM LastMessage l WHERE l.senderId=:senderId" )
 public class LastMessage {
 

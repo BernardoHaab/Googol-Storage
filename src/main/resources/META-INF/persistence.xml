@@ -10,10 +10,10 @@
 
     <properties>
         <property name="hibernate.connection.driver_class" value="com.mysql.jdbc.Driver" />
-        <property name="hibernate.connection.url" value="jdbc:mysql://localhost/Googol" />
-        <property name="hibernate.connection.username" value="root" />
+        <property name="hibernate.connection.url" value="jdbc:mysql://143.47.33.136/Googol" />
+        <property name="hibernate.connection.username" value="googol" />
         <property name="hibernate.hbm2ddl.auto" value="update" />
-        <property name="hibernate.connection.password" value="" />
+        <property name="hibernate.connection.password" value="#Googol1" />
     </properties>
 
   </persistence-unit>
