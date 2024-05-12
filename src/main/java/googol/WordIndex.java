@@ -6,8 +6,8 @@ import java.util.HashSet;
 import java.util.Set;
 
 @Entity
-@Table( name = "wordindex", uniqueConstraints = { @UniqueConstraint(columnNames = { "WORD" }) } )
-@NamedQuery( name = "WordIndex.word", query = "SELECT w FROM WordIndex w WHERE w.word=:word" )
+@Table( name = "WORD_INDEX", uniqueConstraints = { @UniqueConstraint(columnNames = { "WORD" }) } )
+@NamedQuery( name = "WORD_INDEX.word", query = "SELECT w FROM WordIndex w WHERE w.word=:word" )
 public class WordIndex {
 
     @Id
@@ -20,7 +20,7 @@ public class WordIndex {
 
     @ManyToMany
     @JoinTable(
-            name = "word_page",
+            name = "WORD_PAGE",
             joinColumns = { @JoinColumn(name = "INDEX_ID") },
             inverseJoinColumns = { @JoinColumn(name = "PAGE_ID") }
     )

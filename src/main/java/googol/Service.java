@@ -30,18 +30,20 @@ public class Service extends UnicastRemoteObject implements IStorageService, Run
 
         System.out.println("Search terms: " + terms);
 
-        Query q = em.createNativeQuery("Select p.PAGE_ID , p.URL, p.TITLE, p.QUOTE, (select count(pp.referencedBy_PAGE_ID) from page_page pp \n" +
-                "join page p1 on p1.PAGE_ID = pp.referencePages_PAGE_ID\n" +
+        Query q = em.createNativeQuery("Select p.PAGE_ID , p.URL, p.TITLE, p.QUOTE, (select count(pp.referencedBy_PAGE_ID) from PAGE_PAGE pp \n" +
+                "join PAGE p1 on p1.PAGE_ID = pp.referencePages_PAGE_ID\n" +
                 "where p.URL = p1.URL) as recerencedBy  \n" +
-                "FROM word_page wp\n" +
-                "inner join page p on p.PAGE_ID = wp.PAGE_ID\n" +
-                "inner join wordindex w on w.INDEX_ID = wp.INDEX_ID\n" +
+                "FROM WORD_PAGE wp\n" +
+                "inner join PAGE p on p.PAGE_ID = wp.PAGE_ID\n" +
+                "inner join WORD_INDEX w on w.INDEX_ID = wp.INDEX_ID\n" +
                 "WHERE w.WORD IN :terms\n" +
                 "GROUP BY wp.PAGE_ID \n" +
                 "HAVING COUNT(*) = :qnt_terms\n" +
                 "order by recerencedBy desc\n" +
                 "limit 10\n" +
                 "offset :offset");
+
+        System.out.println("Buscou por termos");
 
         q.setParameter("terms", terms);
         q.setParameter("qnt_terms", terms.size());

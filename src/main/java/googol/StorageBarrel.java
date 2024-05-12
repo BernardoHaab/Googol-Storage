@@ -289,7 +289,7 @@ public class StorageBarrel extends Thread {
                 wordIndex.addPage(currentPage);
 
                 try {
-                    TypedQuery<WordIndex> q = session.createNamedQuery("WordIndex.word", WordIndex.class);
+                    TypedQuery<WordIndex> q = session.createNamedQuery("WORD_INDEX.word", WordIndex.class);
                     q.setParameter("word", word);
                     wordIndex = q.getSingleResult();
                     System.out.println(wordIndex);
