@@ -88,6 +88,14 @@ public class Page implements IPage {
     this.referencedBy.add(page);
   }
 
+  public void setQuote(String quote) {
+    this.quote = quote;
+  }
+
+  public void setTitle(String title) {
+    this.title = title;
+  }
+
   @Override
   public String toString() {
     return "Page{" +

@@ -256,8 +256,12 @@ public class StorageBarrel extends Thread {
 
     private void updateStorage(String[] message) {
         List<String> newWords = new LinkedList<>();
+        String title;
+        String quote;
 
         String url = message[0].trim().split("\\|")[1];
+        System.out.println("MESSAGE: " + Arrays.toString(message));
+        System.out.println("Title:" + message[1]);
 
 
         String[] items = new String[message.length - 2];
@@ -265,14 +269,70 @@ public class StorageBarrel extends Thread {
 
         for (String item : items) {
             String[] wordContent = item.trim().split("\\|");
+            String key = wordContent[0];
             String word = wordContent[1];
 
+            System.out.println("KEY: " + key);
+
+            switch (key) {
+                case "TITLE":
+                    title = word;
+                    updatePageTitle(url, title);
+                    break;
+                case "QUOTE":
+                    quote = word;
+                    updatePageQuote(url, quote);
+                    break;
+                default:
+                    newWords.add(word);
+            }
 
             newWords.add(word);
         }
 
         addWords(url, newWords);
 //        addWords(url, newWords);
+    }
+
+    private void updatePageTitle(String url, String title) {
+        //Get Session
+        Session session = em.unwrap(Session.class);
+        Page currentPage = PageService.getPageByUrl(url, session);
+
+        try {
+            session.beginTransaction();
+            currentPage.setTitle(title);
+
+        } catch (PersistenceException e) {
+            System.out.println("Word already exists");
+        } catch (Exception e) {
+//            session.getTransaction().rollback();
+            System.out.println("Error adding words");
+            e.printStackTrace();
+        } finally {
+            session.getTransaction().commit();
+        }
+    }
+
+
+    private void updatePageQuote(String url, String quote) {
+        //Get Session
+        Session session = em.unwrap(Session.class);
+        Page currentPage = PageService.getPageByUrl(url, session);
+
+        try {
+            session.beginTransaction();
+            currentPage.setQuote(quote);
+
+        } catch (PersistenceException e) {
+            System.out.println("Word already exists");
+        } catch (Exception e) {
+//            session.getTransaction().rollback();
+            System.out.println("Error adding words");
+            e.printStackTrace();
+        } finally {
+            session.getTransaction().commit();
+        }
     }
 
     private void addWords(String url, List<String> words) {
